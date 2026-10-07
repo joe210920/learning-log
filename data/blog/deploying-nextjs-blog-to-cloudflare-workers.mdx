@@ -1,0 +1,78 @@
+---
+title: '把 Next.js 部落格部署到 Cloudflare Workers 的踩坑記錄'
+date: '2026-10-07'
+tags: ['cloudflare', 'next-js', 'deploy']
+draft: false
+summary: '這個部落格用 Tailwind Nextjs Starter Blog 模板,透過 OpenNext 部署到 Cloudflare Workers。記錄一下中間踩到的坑,以及完整的部署流程。'
+---
+
+## 背景
+
+這個部落格是用 [Tailwind Nextjs Starter Blog](https://github.com/timlrx/tailwind-nextjs-starter-blog) 模板建的,文章用 MDX 撰寫,透過 [OpenNext](https://opennext.js.org/cloudflare) 部署到 Cloudflare Workers。第一次部署時,首頁看起來正常,但只要點進任何一篇文章,就會出現 500 錯誤。
+
+## 踩到的坑:EvalError
+
+用 `wrangler tail` 把部署後的即時 log 拉出來看,真正的錯誤訊息是:
+
+```
+EvalError: Code generation from strings disallowed for this context
+```
+
+這個錯誤跟文章內容、程式碼都沒關係——**所有**文章頁面(包含模板內建的範例文章)全部中獎。
+
+### 根本原因
+
+這個模板用 `next-contentlayer2` 處理 MDX,內部透過 `getMDXComponent` 把編譯好的 MDX 原始碼用 `new Function(code)` 動態轉成 React 元件,在請求當下執行。這在一般的 Node.js 伺服器(或 Vercel)上完全沒問題,但 **Cloudflare Workers 基於安全限制,禁止任何形式的動態程式碼生成**(`eval`、`new Function` 都不行),所以只要這段程式碼被執行,就會直接丟出 `EvalError`。
+
+那為什麼 `next build` 階段沒有出事?因為 build 是在本機 / CI 的 Node.js 環境裡跑的,那裡沒有這個限制,會順利把每篇文章都渲染成靜態 HTML 檔案。問題出在**部署之後**:OpenNext Cloudflare adapter 預設沒有開啟任何快取(`incrementalCache` 預設是 `"dummy"`),所以即使 build 階段已經產生好靜態 HTML,Worker 收到請求時還是會整個重新執行一次渲染邏輯——也就再次觸發了那段被禁止的 `new Function()`。
+
+## 解法
+
+既然這個部落格的文章都是純靜態、不需要 ISR 即時重新產生,解法就是讓 OpenNext 把**已經 build 好的靜態 HTML 直接當成靜態資源伺服**,完全不要在 Worker 裡重新渲染。
+
+修改 `open-next.config.ts`:
+
+```ts
+import { defineCloudflareConfig } from '@opennextjs/cloudflare'
+import staticAssetsIncrementalCache from '@opennextjs/cloudflare/overrides/incremental-cache/static-assets-incremental-cache'
+
+export default defineCloudflareConfig({
+  incrementalCache: staticAssetsIncrementalCache,
+})
+```
+
+加上這段設定後,部署時會多一個步驟,把 `.next/server/app/blog/*.html` 這些預先渲染好的檔案,複製進 `.open-next/assets/cdn-cgi/_next_cache/` 底下。之後每次請求文章頁,Worker 會先檢查這個路徑有沒有對應的快取檔案——有的話直接回傳內容,完全不執行 React 渲染,自然也就不會碰到 `eval` 限制。
+
+代價是:這個快取是「唯讀、不會自動更新」的,新增或修改文章之後,一定要重新執行一次部署指令,快取才會更新,不能只靠 Next.js 內建的 ISR 機制自動重新產生。
+
+## 完整部署流程
+
+### 一次性設定
+
+1. 登入 Cloudflare:`npx wrangler login`
+2. 在 `wrangler.jsonc` 設定 Worker 名稱
+3. 到 Cloudflare 後台設定帳號的 workers.dev 子網域
+4. 在 `open-next.config.ts` 設定上面提到的 `incrementalCache`
+
+### 之後每次更新內容
+
+```bash
+# 1. (選擇性) 備份程式碼到 GitHub,純版本紀錄,不影響網站
+git add -A
+git commit -m "說明這次改了什麼"
+git push
+
+# 2. 真正讓網站更新:build + 部署
+node .yarn/releases/yarn-3.6.1.cjs cf:deploy
+```
+
+`cf:deploy` 內部會依序做四件事:
+
+1. `next build`:把 `data/blog/*.mdx` 編譯成靜態 HTML
+2. OpenNext 把建置結果轉換成 Cloudflare Workers 看得懂的格式,打包出 `worker.js`
+3. 把預先渲染好的 HTML 複製進靜態資源的快取路徑(就是上面解法提到的那一步)
+4. `wrangler deploy`:把靜態資源和 Worker 一起上傳上線
+
+## 心得
+
+這次踩坑最大的提醒是:**部署後出現錯誤,不能只看「有沒有部署成功」,要去看 runtime 的實際錯誤訊息**。一開始光看 `wrangler deploy` 的輸出,每次都顯示 `Success!`,看起來部署得好好的,但網站其實整個壞掉——直到用 `wrangler tail` 把即時 log 接出來看,才抓到真正的錯誤原因。"部署成功" 跟 "網站正常運作" 是兩件事,務必都要驗證。
