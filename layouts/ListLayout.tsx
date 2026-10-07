@@ -7,7 +7,8 @@ import { CoreContent } from 'pliny/utils/contentlayer'
 import type { Blog } from 'contentlayer/generated'
 import Link from '@/components/Link'
 import Tag from '@/components/Tag'
-import siteMetadata from '@/data/siteMetadata'
+import { useLanguage } from '@/components/LanguageContext'
+import { t } from '@/data/locales'
 
 interface PaginationProps {
   totalPages: number
@@ -22,6 +23,7 @@ interface ListLayoutProps {
 
 function Pagination({ totalPages, currentPage }: PaginationProps) {
   const pathname = usePathname()
+  const { language } = useLanguage()
   const segments = pathname.split('/')
   const lastSegment = segments[segments.length - 1]
   const basePath = pathname
@@ -36,7 +38,7 @@ function Pagination({ totalPages, currentPage }: PaginationProps) {
       <nav className="flex justify-between">
         {!prevPage && (
           <button className="cursor-auto disabled:opacity-50" disabled={!prevPage}>
-            Previous
+            {t(language, 'pagination.previous')}
           </button>
         )}
         {prevPage && (
@@ -44,20 +46,20 @@ function Pagination({ totalPages, currentPage }: PaginationProps) {
             href={currentPage - 1 === 1 ? `/${basePath}/` : `/${basePath}/page/${currentPage - 1}`}
             rel="prev"
           >
-            Previous
+            {t(language, 'pagination.previous')}
           </Link>
         )}
         <span>
-          {currentPage} of {totalPages}
+          {currentPage} {t(language, 'pagination.of')} {totalPages}
         </span>
         {!nextPage && (
           <button className="cursor-auto disabled:opacity-50" disabled={!nextPage}>
-            Next
+            {t(language, 'pagination.next')}
           </button>
         )}
         {nextPage && (
           <Link href={`/${basePath}/page/${currentPage + 1}`} rel="next">
-            Next
+            {t(language, 'pagination.next')}
           </Link>
         )}
       </nav>
@@ -71,6 +73,7 @@ export default function ListLayout({
   initialDisplayPosts = [],
   pagination,
 }: ListLayoutProps) {
+  const { language } = useLanguage()
   const [searchValue, setSearchValue] = useState('')
   const filteredBlogPosts = posts.filter((post) => {
     const searchContent = post.title + post.summary + post.tags?.join(' ')
@@ -90,12 +93,12 @@ export default function ListLayout({
           </h1>
           <div className="relative max-w-lg">
             <label>
-              <span className="sr-only">Search articles</span>
+              <span className="sr-only">{t(language, 'search.label')}</span>
               <input
-                aria-label="Search articles"
+                aria-label={t(language, 'search.label')}
                 type="text"
                 onChange={(e) => setSearchValue(e.target.value)}
-                placeholder="Search articles"
+                placeholder={t(language, 'search.label')}
                 className="focus:border-primary-500 focus:ring-primary-500 block w-full rounded-md border border-gray-300 bg-white px-4 py-2 text-gray-900 dark:border-gray-900 dark:bg-gray-800 dark:text-gray-100"
               />
             </label>
@@ -116,16 +119,18 @@ export default function ListLayout({
           </div>
         </div>
         <ul>
-          {!filteredBlogPosts.length && 'No posts found.'}
+          {!filteredBlogPosts.length && t(language, 'blog.noPostsFound')}
           {displayPosts.map((post) => {
             const { path, date, title, summary, tags } = post
             return (
               <li key={path} className="py-4">
                 <article className="space-y-2 xl:grid xl:grid-cols-4 xl:items-baseline xl:space-y-0">
                   <dl>
-                    <dt className="sr-only">Published on</dt>
+                    <dt className="sr-only">{t(language, 'blog.publishedOn')}</dt>
                     <dd className="text-base leading-6 font-medium text-gray-500 dark:text-gray-400">
-                      <time dateTime={date}>{formatDate(date, siteMetadata.locale)}</time>
+                      <time dateTime={date}>
+                        {formatDate(date, language === 'zh' ? 'zh-TW' : 'en-US')}
+                      </time>
                     </dd>
                   </dl>
                   <div className="space-y-3 xl:col-span-3">

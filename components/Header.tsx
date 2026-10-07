@@ -4,7 +4,9 @@ import Logo from '@/data/logo.svg'
 import Link from './Link'
 import MobileNav from './MobileNav'
 import ThemeSwitch from './ThemeSwitch'
+import LanguageSwitch from './LanguageSwitch'
 import SearchButton from './SearchButton'
+import T from './T'
 
 const Header = () => {
   let headerClass = 'flex items-center w-full bg-white dark:bg-gray-950 justify-between py-10'
@@ -38,12 +40,13 @@ const Header = () => {
                 href={link.href}
                 className="hover:text-primary-500 dark:hover:text-primary-400 m-1 font-medium text-gray-900 dark:text-gray-100"
               >
-                {link.title}
+                <T k={link.title} />
               </Link>
             ))}
         </div>
         <SearchButton />
         <ThemeSwitch />
+        <LanguageSwitch />
         <MobileNav />
       </div>
     </header>
